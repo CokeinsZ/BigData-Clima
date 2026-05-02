@@ -1,0 +1,37 @@
+services:
+  master:
+    build: ./master
+    ports:
+      - "8000:8000"
+    networks:
+      - hadoop_network
+
+  worker:
+    build: ./worker
+    deploy:
+      replicas: 5
+    environment:
+      - MASTER_URL=http://master:8000
+      - BLOCK_SIZE_MB=1
+    volumes:
+      - ./data/workers:/app/storage 
+    networks:
+      - hadoop_network
+    depends_on:
+      - master
+
+  station:
+    build: ./station
+    deploy:
+      replicas: 5
+    environment:
+      - WORKER_URL=http://worker:8001
+      - FRECUENCY_MS=500
+    networks:
+      - hadoop_network
+    depends_on:
+      - worker
+
+networks:
+  hadoop_network:
+    driver: bridge
