@@ -20,17 +20,30 @@ services:
     depends_on:
       - master
 
+  ingestion:
+    build: ./ingestion
+    ports:
+      - "8002:8002"
+    environment:
+      - MASTER_URL=http://master:8000
+      - BLOCK_SIZE_MB=1
+      - REPLICATION_FACTOR=3
+    networks:
+      - hadoop_network
+    depends_on:
+      - master
+
   station:
     build: ./station
     deploy:
-      replicas: 5
+      replicas: 100
     environment:
-      - WORKER_URL=http://worker:8001
+      - INGESTION_URL=http://ingestion:8002
       - FRECUENCY_MS=500
     networks:
       - hadoop_network
     depends_on:
-      - worker
+      - ingestion
 
 networks:
   hadoop_network:

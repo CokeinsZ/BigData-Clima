@@ -5,7 +5,7 @@ import requests
 import uuid
 from datetime import datetime, timezone
 
-WORKER_URL = os.getenv("WORKER_URL", "http://worker:8001")
+INGESTION_URL = os.getenv("INGESTION_URL", "http://ingestion:8002")
 FRECUENCY_MS = int(os.getenv("FRECUENCY_MS", 500))
 STATION_ID = f"SN-MAN-{uuid.uuid4().hex[:4].upper()}"
 
@@ -30,14 +30,14 @@ def generate_payload():
     }
 
 if __name__ == "__main__":
-    print(f"Estación {STATION_ID} iniciada. Enviando datos a {WORKER_URL} cada {FRECUENCY_MS}ms...")
+    print(f"Estación {STATION_ID} iniciada. Enviando datos a {INGESTION_URL} cada {FRECUENCY_MS}ms...")
     
     time.sleep(10) # Pequeño delay inicial para que los workers arranquen
     
     while True:
         payload = generate_payload()
         try:
-            requests.post(f"{WORKER_URL}/ingest", json=payload, timeout=2)
+            requests.post(f"{INGESTION_URL}/ingest", json=payload, timeout=2)
         except Exception as e:
             pass 
         time.sleep(FRECUENCY_MS / 1000.0)

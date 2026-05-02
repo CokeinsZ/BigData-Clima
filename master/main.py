@@ -1,29 +1,44 @@
-from fastapi import FastAPI
-from pydantic import BaseModel
-from typing import List, Dict
+from fastapi import FastAPI, HTTPException
+from typing import List, Dict, Set
+import random
+import uuid
 
-app = FastAPI(title="NameNode - Master")
+app = FastAPI(title="NameNode")
 
-filesystem_metadata: Dict[str, List[str]] = {}
+active_workers: Set[str] = set() # Directorio de trabajadores activos (sus Hostnames exactos)
+filesystem_metadata: Dict[str, List[str]] = {} # Registro de dónde está cada bloque
 
-class BlockReport(BaseModel):
-    block_id: str
-    worker_id: str
-    size_bytes: int
 
-@app.post("/register_block")
-async def register_block(report: BlockReport):
-    if report.block_id not in filesystem_metadata:
-        filesystem_metadata[report.block_id] = []
+@app.post("/register_worker")
+async def register_worker(worker_hostname: str):
+    active_workers.add(worker_hostname)
+    return {"status": "ok", "message": f"Worker {worker_hostname} registrado."}
+
+@app.get("/allocate_block")
+async def allocate_block(replicas: int = 3):
+    """El servicio de ingesta pide los nodos donde guardar un bloque nuevo."""
+    if len(active_workers) == 0:
+        raise HTTPException(status_code=503, detail="No hay workers disponibles")
     
-    if report.worker_id not in filesystem_metadata[report.block_id]:
-        filesystem_metadata[report.block_id].append(report.worker_id)
-        
-    return {"status": "ok", "message": f"Metadatos actualizados para {report.block_id}"}
+    # Elegir aleatoriamente los nodos según el factor de replicación
+    num_replicas = min(replicas, len(active_workers))
+    chosen_workers = random.sample(list(active_workers), k=num_replicas)
+    
+    new_block_id = f"blk_{uuid.uuid4().hex}"
+    filesystem_metadata[new_block_id] = chosen_workers    # Guardamos en los metadatos a los se le asignó el bloque
+
+    return {
+        "block_id": new_block_id,
+        "target_workers": chosen_workers
+    }
 
 @app.get("/metadata")
 async def get_metadata():
-    return {"total_blocks": len(filesystem_metadata), "metadata": filesystem_metadata}
+    return {
+        "total_active_workers": len(active_workers),
+        "workers": list(active_workers),
+        "blocks_metadata": filesystem_metadata
+    }
 
 if __name__ == "__main__":
     import uvicorn

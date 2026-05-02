@@ -1,66 +1,42 @@
 import os
-import json
-import uuid
+import socket
 import httpx
+import asyncio
 from fastapi import FastAPI, Request
 from contextlib import asynccontextmanager
 
-# Variables de entorno
 MASTER_URL = os.getenv("MASTER_URL", "http://master:8000")
-BLOCK_SIZE_LIMIT = int(os.getenv("BLOCK_SIZE_MB", 1)) * 1024 * 1024 # Convertido a Bytes
-WORKER_ID = f"worker_{uuid.uuid4().hex[:6]}"
 STORAGE_DIR = "/app/storage"
 
-# Estado interno
-current_block_id = f"blk_{uuid.uuid4().hex}"
-current_block_size = 0
+WORKER_HOSTNAME = socket.gethostname() # Obtenemos el ID exacto del contenedor (ej. "f3b2a1")
 
 os.makedirs(STORAGE_DIR, exist_ok=True)
 
-app = FastAPI(title=f"DataNode - {WORKER_ID}")
-
-async def seal_block_and_notify():
-    global current_block_id, current_block_size
-    
-    # Avisar al Master (NameNode)
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Al arrancar, se registra en el Master con su Hostname exacto
     async with httpx.AsyncClient() as client:
         try:
-            await client.post(f"{MASTER_URL}/register_block", json={
-                "block_id": current_block_id,
-                "worker_id": WORKER_ID,
-                "size_bytes": current_block_size
-            })
-            print(f"[{WORKER_ID}] Bloque {current_block_id} sellado ({current_block_size} bytes).")
+            await client.post(f"{MASTER_URL}/register_worker?worker_hostname={WORKER_HOSTNAME}")
+            print(f"Worker {WORKER_HOSTNAME} registrado en el Master.")
         except Exception as e:
-            print(f"Error notificando al master: {e}")
+            print(f"Error registrando worker: {e}")
+    yield
 
-    # Reiniciar para el siguiente bloque
-    current_block_id = f"blk_{uuid.uuid4().hex}"
-    current_block_size = 0
+app = FastAPI(title=f"DataNode - {WORKER_HOSTNAME}", lifespan=lifespan)
 
-@app.post("/ingest")
-async def ingest_data(request: Request):
-    global current_block_id, current_block_size
+@app.post("/store_block/{block_id}")
+async def store_block(block_id: str, request: Request):
+    """Recibe un bloque ENTERO y lo guarda en disco."""
+    file_path = os.path.join(STORAGE_DIR, f"{block_id}_{WORKER_HOSTNAME}.dat")
     
-    data = await request.json()
-    data_str = json.dumps(data) + "\n"
-    data_bytes = data_str.encode('utf-8')
-    bytes_length = len(data_bytes)
-    
-    # Escribir en el archivo (Append)
-    file_path = os.path.join(STORAGE_DIR, f"{current_block_id}.dat")
-    with open(file_path, "ab") as f:
-        f.write(data_bytes)
-        
-    current_block_size += bytes_length
-    
-    # ¿Superó el límite del bloque? (Ej: 1MB o 128MB)
-    if current_block_size >= BLOCK_SIZE_LIMIT:
-        await seal_block_and_notify()
-        
-    return {"status": "received"}
+    with open(file_path, "wb") as f:
+        async for chunk in request.stream():
+            f.write(chunk)
+            
+    print(f"[{WORKER_HOSTNAME}] Bloque {block_id} guardado con éxito.")
+    return {"status": "stored"}
 
 if __name__ == "__main__":
     import uvicorn
-    # El puerto interno será 8001 para diferenciarlo del master si corren local
     uvicorn.run(app, host="0.0.0.0", port=8001)
