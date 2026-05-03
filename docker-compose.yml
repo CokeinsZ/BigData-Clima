@@ -12,7 +12,7 @@ services:
       replicas: 5
     environment:
       - MASTER_URL=http://master:8000
-      - BLOCK_SIZE_MB=1
+      - BLOCK_SIZE_MB=10
     volumes:
       - ./data/workers:/app/storage 
     networks:
@@ -26,7 +26,7 @@ services:
       - "8002:8002"
     environment:
       - MASTER_URL=http://master:8000
-      - BLOCK_SIZE_MB=1
+      - BLOCK_SIZE_MB=10
       - REPLICATION_FACTOR=3
     networks:
       - hadoop_network
@@ -36,7 +36,7 @@ services:
   station:
     build: ./station
     deploy:
-      replicas: 100
+      replicas: 250
     environment:
       - INGESTION_URL=http://ingestion:8002
       - FRECUENCY_MS=500
